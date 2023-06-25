@@ -1,1 +1,3 @@
-# blob_storage
+# BlobStorage
+
+NoSQL database with fast processing
