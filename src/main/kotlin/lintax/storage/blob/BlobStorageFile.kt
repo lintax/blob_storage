@@ -189,22 +189,26 @@ internal class InnerBlobStorage(
         val cacheKey = key.toCacheKey()
         val pos = index[cacheKey] ?: return null
         lock.acquire()
+
+        val mask: Int
+        val buf: ByteArray
+
         try {
             f.seek(pos.toLong())
-            val mask = f.read()
+            mask = f.read()
             val keyLength = f.readShort().toInt() // key length
             f.skipBytes(keyLength) // key
-            return when (val dataSize = f.readInt()) {
-                0 -> null
+            when (val dataSize = f.readInt()) {
+                0 -> return null
                 else -> {
-                    val buf = ByteArray(dataSize)
+                    buf = ByteArray(dataSize)
                     f.read(buf)
-                    dataProcessorOnLoad?.invoke(mask and MASK_USER_DATA, buf) ?: buf
                 }
             }
         } finally {
             lock.release()
         }
+        return dataProcessorOnLoad?.invoke(mask and MASK_USER_DATA, buf) ?: buf
     }
 
     fun scan(keyAcceptor: (String) -> Boolean): List<String> {
@@ -242,14 +246,15 @@ internal class InnerBlobStorage(
             delete(key)
             return
         }
+
+        val userChangedData = dataProcessorOnSave?.invoke(data)
+        val maskToSave = (userChangedData?.first ?: 0) and MASK_USER_DATA
+
         val cacheKey = key.toCacheKey()
         lock.acquire()
         try {
             val pos = fileSoftTruncatedPos ?: f.length()
             f.seek(pos)
-
-            val userChangedData = dataProcessorOnSave?.invoke(data)
-            val maskToSave = (userChangedData?.first ?: 0) and MASK_USER_DATA
 
             f.writeByte(maskToSave)
             val keyBytes = cacheKey.toBytes()
